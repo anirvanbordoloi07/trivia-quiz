@@ -61,6 +61,8 @@ const useGameStore = create((set, get) => ({
 
   setMyName: (name) => set({ myName: name }),
 
+  setGameId: (gameId) => set({ gameId }),
+
   setGameLength: (length) => set({ gameLength: length }),
 
   setError: (message) => set({ error: message }),

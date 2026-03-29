@@ -12,7 +12,7 @@ export default function JoinPage() {
   const [playerName, setPlayerName] = useState('')
   const [isJoining, setIsJoining] = useState(false)
 
-  const { setMyName, myRole } = useGameStore()
+  const { setMyName, setGameId, myRole } = useGameStore()
   const { joinGame } = useSocket()
 
   // If already in the game (re-render after join), stop spinner
@@ -22,11 +22,18 @@ export default function JoinPage() {
     }
   }, [myRole])
 
+  useEffect(() => {
+    if (urlGameId) {
+      setGameId(urlGameId)
+    }
+  }, [urlGameId, setGameId])
+
   const handleJoin = (e) => {
     e.preventDefault()
     if (!playerName.trim() || !urlGameId) return
     setIsJoining(true)
     setMyName(playerName.trim())
+    setGameId(urlGameId)
     joinGame({ gameId: urlGameId, playerName: playerName.trim() })
   }
 

@@ -3,97 +3,99 @@ import { connectSocket, getSocket } from '../utils/socket'
 import useGameStore from '../store/gameStore'
 
 /**
- * Central hook that connects to the socket server and wires
- * all incoming events to the Zustand store.
+ * Register socket listeners exactly once for the current React tree.
  */
-export function useSocket() {
+export function useSocketEvents() {
   const store = useGameStore()
 
   useEffect(() => {
     const socket = connectSocket()
-
-    // Connection events
-    socket.on('connect', () => {
+    const handleConnect = () => {
       store.setConnected(true, socket.id)
-    })
-
-    socket.on('disconnect', () => {
+    }
+    const handleDisconnect = () => {
       store.setConnected(false, null)
-    })
-
-    // Game events
-    socket.on('game-created', (data) => {
+    }
+    const handleGameCreated = (data) => {
       store.onGameCreated(data)
-    })
-
-    socket.on('player-joined', (data) => {
+    }
+    const handlePlayerJoined = (data) => {
       store.onPlayerJoined(data)
-    })
-
-    socket.on('game-started', (data) => {
+    }
+    const handleGameStarted = (data) => {
       store.onGameStarted(data)
-    })
-
-    socket.on('question-submitted', () => {
+    }
+    const handleQuestionSubmitted = () => {
       store.onQuestionSubmitted()
-    })
-
-    socket.on('your-turn-to-ask', () => {
+    }
+    const handleYourTurnToAsk = () => {
       store.onYourTurnToAsk()
-    })
-
-    socket.on('waiting-for-question', () => {
+    }
+    const handleWaitingForQuestion = () => {
       store.onWaitingForQuestion()
-    })
-
-    socket.on('question-ready', (data) => {
+    }
+    const handleQuestionReady = (data) => {
       store.onQuestionReady(data)
-    })
-
-    socket.on('answer-submitted', (data) => {
+    }
+    const handleAnswerSubmitted = (data) => {
       store.onAnswerSubmitted(data)
-    })
-
-    socket.on('reveal-countdown', ({ secondsLeft }) => {
+    }
+    const handleRevealCountdown = ({ secondsLeft }) => {
       store.setRevealCountdown(secondsLeft)
-    })
-
-    socket.on('reveal', (data) => {
+    }
+    const handleReveal = (data) => {
       store.onReveal(data)
-    })
-
-    socket.on('round-complete', (data) => {
+    }
+    const handleRoundComplete = (data) => {
       store.onRoundComplete(data)
-    })
-
-    socket.on('game-over', (data) => {
+    }
+    const handleGameOver = (data) => {
       store.onGameOver(data)
-    })
-
-    socket.on('error', ({ message }) => {
+    }
+    const handleError = ({ message }) => {
       store.setError(message)
-    })
+    }
+
+    socket.on('connect', handleConnect)
+    socket.on('disconnect', handleDisconnect)
+    socket.on('game-created', handleGameCreated)
+    socket.on('player-joined', handlePlayerJoined)
+    socket.on('game-started', handleGameStarted)
+    socket.on('question-submitted', handleQuestionSubmitted)
+    socket.on('your-turn-to-ask', handleYourTurnToAsk)
+    socket.on('waiting-for-question', handleWaitingForQuestion)
+    socket.on('question-ready', handleQuestionReady)
+    socket.on('answer-submitted', handleAnswerSubmitted)
+    socket.on('reveal-countdown', handleRevealCountdown)
+    socket.on('reveal', handleReveal)
+    socket.on('round-complete', handleRoundComplete)
+    socket.on('game-over', handleGameOver)
+    socket.on('error', handleError)
 
     return () => {
-      socket.off('connect')
-      socket.off('disconnect')
-      socket.off('game-created')
-      socket.off('player-joined')
-      socket.off('game-started')
-      socket.off('question-submitted')
-      socket.off('your-turn-to-ask')
-      socket.off('waiting-for-question')
-      socket.off('question-ready')
-      socket.off('answer-submitted')
-      socket.off('reveal-countdown')
-      socket.off('reveal')
-      socket.off('round-complete')
-      socket.off('game-over')
-      socket.off('error')
+      socket.off('connect', handleConnect)
+      socket.off('disconnect', handleDisconnect)
+      socket.off('game-created', handleGameCreated)
+      socket.off('player-joined', handlePlayerJoined)
+      socket.off('game-started', handleGameStarted)
+      socket.off('question-submitted', handleQuestionSubmitted)
+      socket.off('your-turn-to-ask', handleYourTurnToAsk)
+      socket.off('waiting-for-question', handleWaitingForQuestion)
+      socket.off('question-ready', handleQuestionReady)
+      socket.off('answer-submitted', handleAnswerSubmitted)
+      socket.off('reveal-countdown', handleRevealCountdown)
+      socket.off('reveal', handleReveal)
+      socket.off('round-complete', handleRoundComplete)
+      socket.off('game-over', handleGameOver)
+      socket.off('error', handleError)
     }
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+}
 
-  // Emit helpers
+/**
+ * Emit helper hook used by pages and actions.
+ */
+export function useSocket() {
   const createGame = useCallback(({ playerName, gameLength }) => {
     const socket = getSocket()
     socket.emit('create-game', { playerName, gameLength })

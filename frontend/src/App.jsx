@@ -2,7 +2,7 @@ import React, { useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { connectSocket } from './utils/socket'
 import useGameStore from './store/gameStore'
-import useSocket from './hooks/useSocket'
+import { useSocketEvents } from './hooks/useSocket'
 import ConnectionStatus from './components/ConnectionStatus'
 
 // Pages
@@ -22,7 +22,7 @@ import GameOverPage from './pages/GameOverPage'
  */
 function GameRouter() {
   // Initialize socket listeners
-  useSocket()
+  useSocketEvents()
 
   const { phase } = useGameStore()
 
@@ -96,7 +96,7 @@ export default function App() {
  * Invisible component that mounts socket hooks on non-game pages.
  */
 function SocketInit() {
-  useSocket()
+  useSocketEvents()
   useEffect(() => {
     connectSocket()
   }, [])

@@ -1,0 +1,80 @@
+version: "3.9"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Trivia Quiz — Local Development Docker Compose
+#
+# Usage:
+#   docker-compose up            # start both services (attach)
+#   docker-compose up -d         # start detached
+#   docker-compose up backend    # start backend only
+#   docker-compose up frontend   # start frontend only
+#   docker-compose down          # stop and remove containers
+#   docker-compose logs -f       # tail logs from both services
+#
+# Prerequisites:
+#   - Docker Desktop >= 4.x (or Docker Engine >= 24.x + Compose v2)
+#   - backend/.env  (copy from .env.example)
+#   - frontend/.env (copy from frontend/.env.example)
+# ─────────────────────────────────────────────────────────────────────────────
+
+services:
+
+  # ── Backend: Node.js + Express + Socket.IO ──────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: trivia_backend
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    env_file:
+      - ./backend/.env
+    environment:
+      NODE_ENV: development
+      PORT: 3001
+      CLIENT_ORIGIN: "http://localhost:5173"
+    volumes:
+      # Mount source for live-reload via ts-node-dev / nodemon
+      - ./backend/src:/app/src:ro
+      # Exclude node_modules from host mount
+      - /app/node_modules
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    networks:
+      - trivia_net
+
+  # ── Frontend: React 19 + Vite dev server ────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: trivia_frontend
+    restart: unless-stopped
+    ports:
+      - "5173:5173"
+    env_file:
+      - ./frontend/.env
+    environment:
+      VITE_BACKEND_URL: "http://localhost:3001"
+      VITE_SOCKET_PATH: "/socket.io"
+    volumes:
+      # Mount source for Vite HMR (hot module replacement)
+      - ./frontend/src:/app/src:ro
+      - ./frontend/public:/app/public:ro
+      - ./frontend/index.html:/app/index.html:ro
+      # Exclude node_modules from host mount
+      - /app/node_modules
+    depends_on:
+      backend:
+        condition: service_healthy
+    networks:
+      - trivia_net
+
+networks:
+  trivia_net:
+    driver: bridge

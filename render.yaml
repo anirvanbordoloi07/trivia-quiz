@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: trivia-quiz-backend
+    runtime: node
+    rootDir: backend
+    plan: free
+    buildCommand: npm install && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_VERSION
+        value: 20
+      - key: CLIENT_ORIGIN
+        sync: false
+      - key: PRODUCTION_URL
+        sync: false

@@ -1,236 +1,223 @@
 import { create } from 'zustand'
 
-/**
- * Game phases:
- * 'idle'          - not in a game
- * 'lobby'         - creating game (P1)
- * 'joining'       - joining game (P2)
- * 'waiting-room'  - both connected, waiting for start
- * 'authoring'     - current player writing a question
- * 'waiting-for-question' - other player waiting while question is authored
- * 'answering'     - player answering a question
- * 'reveal'        - showing result after answer
- * 'game-over'     - game finished
- */
+function secondsUntil(timestamp, fallback = 0) {
+  if (!timestamp) return fallback
+  const diffMs = new Date(timestamp).getTime() - Date.now()
+  return Math.max(0, Math.ceil(diffMs / 1000))
+}
+
+function buildChoices(round) {
+  if (!round) return null
+  return {
+    A: round.choice_a,
+    B: round.choice_b,
+    C: round.choice_c,
+    D: round.choice_d,
+  }
+}
+
+function deriveCompletedRounds(rounds, playersByRole) {
+  return rounds
+    .filter((round) => round.status === 'revealed' || round.status === 'scored')
+    .map((round) => ({
+      roundNumber: round.round_number,
+      questionerName: playersByRole[round.questioner_role]?.display_name ?? round.questioner_role,
+      answererName: playersByRole[round.answerer_role]?.display_name ?? round.answerer_role,
+      question: round.question_text,
+      choices: {
+        A: round.choice_a,
+        B: round.choice_b,
+        C: round.choice_c,
+        D: round.choice_d,
+      },
+      correctAnswer: round.correct_choice,
+      answererChoice: round.submitted_choice,
+      answererCorrect: round.answerer_correct,
+      timedOut: round.timed_out,
+    }))
+}
+
+function deriveRevealData(game, round, playersByRole) {
+  if (!round || (game.status !== 'reveal' && game.status !== 'completed')) return null
+
+  const questionerRole = round.questioner_role
+  const answererRole = round.answerer_role
+  const questionerName = playersByRole[questionerRole]?.display_name ?? questionerRole
+  const answererName = playersByRole[answererRole]?.display_name ?? answererRole
+
+  return {
+    correctAnswer: round.correct_choice,
+    answererChoice: round.submitted_choice,
+    answererCorrect: !!round.answerer_correct,
+    timedOut: !!round.timed_out,
+    questionerName,
+    answererName,
+    pointsAwarded: {
+      questioner: round.score_awarded_to === questionerRole ? 1 : 0,
+      answerer: round.score_awarded_to === answererRole ? 1 : 0,
+    },
+    scores: {
+      [questionerName]: playersByRole[questionerRole]?.score ?? 0,
+      [answererName]: playersByRole[answererRole]?.score ?? 0,
+    },
+  }
+}
+
+function derivePhase(game, me) {
+  if (!game) return 'idle'
+
+  switch (game.status) {
+    case 'lobby':
+      return 'waiting-room'
+    case 'authoring':
+      return me?.role === game.current_questioner_role ? 'authoring' : 'waiting-for-question'
+    case 'answering':
+      return me?.role === game.current_answerer_role ? 'answering' : 'questioner-waiting'
+    case 'reveal':
+      return 'reveal'
+    case 'completed':
+      return 'game-over'
+    default:
+      return 'idle'
+  }
+}
 
 const useGameStore = create((set, get) => ({
-  // Connection
   connected: false,
   socketId: null,
 
-  // Game identity
   gameId: null,
+  playerToken: null,
   shareLink: null,
-  myRole: null,        // 'player1' | 'player2'
+  joinCode: null,
+  myRole: null,
   myName: null,
 
-  // Game config
-  gameLength: 10,      // 5 | 10 | 15
-  player1: null,       // { name, id }
-  player2: null,       // { name, id }
+  gameLength: 10,
+  player1: null,
+  player2: null,
 
-  // Round state
   phase: 'idle',
-  currentQuestioner: null,   // player name
-  currentAnswerer: null,     // player name
+  currentQuestioner: null,
+  currentAnswerer: null,
   roundNumber: 0,
   totalRounds: 0,
   winner: null,
   completedRounds: [],
 
-  // Question/answer state
   question: null,
-  choices: null,       // { A, B, C, D }
+  choices: null,
   selectedAnswer: null,
   timeLeft: 30,
   timerActive: false,
+  answerDeadlineAt: null,
   answerSubmitted: false,
 
-  // Reveal state
-  revealData: null,    // { correctAnswer, answererChoice, answererCorrect, pointsAwarded, scores }
+  revealData: null,
   revealCountdown: 5,
+  revealDeadlineAt: null,
 
-  // Scores
   scores: { player1: 0, player2: 0 },
-
-  // Error
   error: null,
 
-  // ---- Actions ----
-
   setConnected: (connected, socketId = null) => set({ connected, socketId }),
-
   setMyName: (name) => set({ myName: name }),
-
   setGameId: (gameId) => set({ gameId }),
-
-  setGameLength: (length) => set({ gameLength: length }),
-
+  setGameLength: (gameLength) => set({ gameLength }),
   setError: (message) => set({ error: message }),
-
   clearError: () => set({ error: null }),
+  setAnswerSubmitted: (answerSubmitted) => set({ answerSubmitted }),
+  selectAnswer: (answer) => set({ selectedAnswer: answer }),
+  setTimeLeft: (timeLeft) => set({ timeLeft }),
+  setTimerActive: (timerActive) => set({ timerActive }),
+  setRevealCountdown: (revealCountdown) => set({ revealCountdown }),
 
-  // Game created (P1)
-  onGameCreated: ({ gameId, shareLink }) => {
+  setSession: ({ gameId, playerToken, myRole, myName, joinCode = null }) =>
     set({
       gameId,
-      shareLink,
-      myRole: 'player1',
-      phase: 'waiting-room',
-    })
-  },
+      playerToken,
+      myRole,
+      myName,
+      joinCode,
+      shareLink: gameId ? `${window.location.origin}/join/${gameId}` : null,
+      phase: gameId ? 'waiting-room' : 'idle',
+    }),
 
-  // Player joined (both players)
-  // Server sends player1/player2 as plain name strings; store as { name } objects
-  onPlayerJoined: ({ player1, player2, gameLength }) => {
-    set({
-      player1: player1 ? { name: player1 } : null,
-      player2: player2 ? { name: player2 } : null,
-      gameLength,
-      myRole: get().myRole ?? 'player2',
-      phase: 'waiting-room',
-    })
-  },
+  applySnapshot: (snapshot) => {
+    const game = snapshot?.game
+    const me = snapshot?.player
+    const players = snapshot?.players ?? []
+    const rounds = snapshot?.rounds ?? []
+    const currentRound = snapshot?.current_round ?? null
 
-  // Game started — store round/role info; phase is set by the follow-up
-  // your-turn-to-ask / waiting-for-question events (socket-ID-targeted, not name-based)
-  onGameStarted: ({
-    currentQuestionerName,
-    currentAnswererName,
-    roundNumber,
-    totalRounds,
-  }) => {
-    set({
-      currentQuestioner: currentQuestionerName,
-      currentAnswerer: currentAnswererName,
-      roundNumber,
-      totalRounds,
-      winner: null,
-      completedRounds: [],
-      question: null,
-      choices: null,
-      selectedAnswer: null,
-      revealData: null,
-    })
-  },
+    if (!game || !me) return
 
-  onQuestionSubmitted: () => {
-    set({
-      phase: 'questioner-waiting',
-      timerActive: false,
-    })
-  },
+    const playersByRole = Object.fromEntries(players.map((player) => [player.role, player]))
+    const player1 = playersByRole.player1
+      ? { id: playersByRole.player1.id, name: playersByRole.player1.display_name, role: 'player1' }
+      : null
+    const player2 = playersByRole.player2
+      ? { id: playersByRole.player2.id, name: playersByRole.player2.display_name, role: 'player2' }
+      : null
 
-  // It's my turn to ask
-  onYourTurnToAsk: () => {
-    set({
-      phase: 'authoring',
-      question: null,
-      choices: null,
-      selectedAnswer: null,
-      answerSubmitted: false,
-      revealData: null,
-    })
-  },
-
-  // Waiting for opponent to author a question
-  onWaitingForQuestion: () => {
-    set({
-      phase: 'waiting-for-question',
-      question: null,
-      choices: null,
-      selectedAnswer: null,
-      answerSubmitted: false,
-    })
-  },
-
-  // Question ready to answer (answerer only — no correct answer)
-  onQuestionReady: ({ question, choices }) => {
-    set({
-      phase: 'answering',
-      question,
-      choices,
-      selectedAnswer: null,
-      answerSubmitted: false,
-      timeLeft: 30,
-      timerActive: true,
-    })
-  },
-
-  // Answer was submitted (notification)
-  onAnswerSubmitted: ({ answererName }) => {
-    // questioner sees this — someone submitted
-    set({ timerActive: false, answerSubmitted: true })
-  },
-
-  // Reveal result
-  // Server sends scores as { [playerName]: number }; remap to { player1, player2 }
-  onReveal: (data) => {
-    const { player1, player2 } = get()
-    const rawScores = data.scores || {}
-    const mappedScores = {
-      player1: rawScores[player1?.name] ?? 0,
-      player2: rawScores[player2?.name] ?? 0,
+    const phase = derivePhase(game, me)
+    const scores = {
+      player1: player1 ? playersByRole.player1.score : 0,
+      player2: player2 ? playersByRole.player2.score : 0,
     }
+
+    const currentQuestioner = game.current_questioner_role
+      ? playersByRole[game.current_questioner_role]?.display_name ?? null
+      : null
+    const currentAnswerer = game.current_answerer_role
+      ? playersByRole[game.current_answerer_role]?.display_name ?? null
+      : null
+
+    const answerDeadlineAt = game.answer_deadline_at ?? null
+    const revealDeadlineAt = game.reveal_deadline_at ?? null
+    const timeLeft = phase === 'answering' ? secondsUntil(answerDeadlineAt, 30) : 30
+    const revealCountdown = phase === 'reveal' ? secondsUntil(revealDeadlineAt, 0) : 5
+    const completedRounds = deriveCompletedRounds(rounds, playersByRole)
+    const revealData = deriveRevealData(game, currentRound, playersByRole)
+
     set({
-      phase: 'reveal',
-      revealData: data,
-      scores: mappedScores,
-      timerActive: false,
-      // revealCountdown is driven to 0 by server reveal-countdown ticks before this fires
-      revealCountdown: 0,
+      gameId: game.id,
+      playerToken: me.player_token,
+      shareLink: `${window.location.origin}/join/${game.id}`,
+      joinCode: game.join_code,
+      myRole: me.role,
+      myName: me.display_name,
+      gameLength: game.questions_per_player,
+      player1,
+      player2,
+      phase,
+      currentQuestioner,
+      currentAnswerer,
+      roundNumber: game.current_round_number,
+      totalRounds: game.total_rounds,
+      winner: game.winner_role ? playersByRole[game.winner_role]?.display_name ?? null : 'tie',
+      completedRounds,
+      question: currentRound?.question_text ?? null,
+      choices: buildChoices(currentRound),
+      timeLeft,
+      timerActive: phase === 'answering' && timeLeft > 0,
+      answerDeadlineAt,
+      answerSubmitted: !!currentRound?.submitted_choice || !!currentRound?.timed_out,
+      revealData,
+      revealCountdown,
+      revealDeadlineAt,
+      scores,
+      error: null,
     })
   },
-
-  // Round complete — store next round info; phase is set by follow-up
-  // your-turn-to-ask / waiting-for-question events (socket-ID-targeted, not name-based)
-  onRoundComplete: ({ nextQuestioner, nextAnswerer, roundNumber }) => {
-    set({
-      currentQuestioner: nextQuestioner,
-      currentAnswerer: nextAnswerer,
-      roundNumber,
-      question: null,
-      choices: null,
-      selectedAnswer: null,
-      answerSubmitted: false,
-      revealData: null,
-      revealCountdown: 5,
-    })
-  },
-
-  // Game over
-  // Server sends scores as { [playerName]: number }; remap to { player1, player2 }
-  onGameOver: ({ scores: rawScores, winner, rounds = [] }) => {
-    const { player1, player2 } = get()
-    const mappedScores = {
-      player1: rawScores[player1?.name] ?? 0,
-      player2: rawScores[player2?.name] ?? 0,
-    }
-    set({
-      phase: 'game-over',
-      scores: mappedScores,
-      winner,
-      completedRounds: rounds,
-      timerActive: false,
-    })
-  },
-
-  setCompletedRounds: (completedRounds) => set({ completedRounds }),
-
-  // Local actions
-  selectAnswer: (answer) => set({ selectedAnswer: answer }),
-
-  setAnswerSubmitted: (answerSubmitted) => set({ answerSubmitted }),
-
-  setTimeLeft: (timeLeft) => set({ timeLeft }),
-
-  setTimerActive: (active) => set({ timerActive: active }),
-
-  setRevealCountdown: (n) => set({ revealCountdown: n }),
 
   resetGame: () => set({
+    connected: false,
+    socketId: null,
     gameId: null,
+    playerToken: null,
     shareLink: null,
+    joinCode: null,
     myRole: null,
     myName: null,
     gameLength: 10,
@@ -248,9 +235,11 @@ const useGameStore = create((set, get) => ({
     selectedAnswer: null,
     timeLeft: 30,
     timerActive: false,
+    answerDeadlineAt: null,
     answerSubmitted: false,
     revealData: null,
     revealCountdown: 5,
+    revealDeadlineAt: null,
     scores: { player1: 0, player2: 0 },
     error: null,
   }),

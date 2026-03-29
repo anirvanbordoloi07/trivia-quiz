@@ -19,7 +19,7 @@ export default function AnsweringPage() {
     roundNumber, totalRounds, currentQuestioner, timeLeft,
     answerSubmitted, setAnswerSubmitted, setTimerActive,
   } = useGameStore()
-  const { submitAnswer } = useSocket()
+  const { submitAnswer, submitTimeout } = useSocket()
 
   const handleSelect = (label) => {
     if (answerSubmitted) return
@@ -34,10 +34,8 @@ export default function AnsweringPage() {
   }
 
   const handleTimeUp = useCallback(() => {
-    // Do not auto-submit — the server has its own 30s timer and will handle the timeout.
-    // Submitting null here would be rejected by the server as an invalid choice and
-    // would generate a spurious error banner. Visual countdown is client-local only.
-  }, [])
+    submitTimeout()
+  }, [submitTimeout])
 
   const choiceList = choices
     ? CHOICE_LABELS.map((label, i) => ({

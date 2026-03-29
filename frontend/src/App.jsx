@@ -1,6 +1,5 @@
-import React, { useEffect } from 'react'
+import React from 'react'
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
-import { connectSocket } from './utils/socket'
 import useGameStore from './store/gameStore'
 import { useSocketEvents } from './hooks/useSocket'
 import ConnectionStatus from './components/ConnectionStatus'
@@ -21,15 +20,9 @@ import GameOverPage from './pages/GameOverPage'
  * All real game state lives in Zustand — the URL is secondary for in-game flow.
  */
 function GameRouter() {
-  // Initialize socket listeners
   useSocketEvents()
 
   const { phase } = useGameStore()
-
-  // Connect the socket on mount
-  useEffect(() => {
-    connectSocket()
-  }, [])
 
   switch (phase) {
     case 'waiting-room':
@@ -97,8 +90,5 @@ export default function App() {
  */
 function SocketInit() {
   useSocketEvents()
-  useEffect(() => {
-    connectSocket()
-  }, [])
   return null
 }

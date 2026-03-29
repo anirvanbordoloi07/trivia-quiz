@@ -1,140 +1,243 @@
-import { useEffect, useCallback } from 'react'
-import { connectSocket, getSocket } from '../utils/socket'
+import { useCallback, useEffect } from 'react'
+import supabase from '../lib/supabase'
+import {
+  advanceRound as advanceRoundRpc,
+  clearPlayerSession,
+  createGame as createGameRpc,
+  getGameSnapshot,
+  joinGameById,
+  loadPlayerSession,
+  markPlayerDisconnected,
+  resumePlayer,
+  savePlayerSession,
+  startGame as startGameRpc,
+  submitAnswer as submitAnswerRpc,
+  submitQuestion as submitQuestionRpc,
+  submitTimeout as submitTimeoutRpc,
+} from '../lib/triviaApi'
 import useGameStore from '../store/gameStore'
 
-/**
- * Register socket listeners exactly once for the current React tree.
- */
-export function useSocketEvents() {
-  const store = useGameStore()
+async function refreshSnapshot() {
+  const { gameId, playerToken, applySnapshot, setError } = useGameStore.getState()
+  if (!gameId || !playerToken) return
 
-  useEffect(() => {
-    const socket = connectSocket()
-    const handleConnect = () => {
-      store.setConnected(true, socket.id)
-    }
-    const handleDisconnect = () => {
-      store.setConnected(false, null)
-    }
-    const handleGameCreated = (data) => {
-      store.onGameCreated(data)
-    }
-    const handlePlayerJoined = (data) => {
-      store.onPlayerJoined(data)
-    }
-    const handleGameStarted = (data) => {
-      store.onGameStarted(data)
-    }
-    const handleQuestionSubmitted = () => {
-      store.onQuestionSubmitted()
-    }
-    const handleYourTurnToAsk = () => {
-      store.onYourTurnToAsk()
-    }
-    const handleWaitingForQuestion = () => {
-      store.onWaitingForQuestion()
-    }
-    const handleQuestionReady = (data) => {
-      store.onQuestionReady(data)
-    }
-    const handleAnswerSubmitted = (data) => {
-      store.onAnswerSubmitted(data)
-    }
-    const handleRevealCountdown = ({ secondsLeft }) => {
-      store.setRevealCountdown(secondsLeft)
-    }
-    const handleReveal = (data) => {
-      store.onReveal(data)
-    }
-    const handleRoundComplete = (data) => {
-      store.onRoundComplete(data)
-    }
-    const handleGameOver = (data) => {
-      store.onGameOver(data)
-    }
-    const handleError = ({ message }) => {
-      store.setError(message)
-    }
-
-    socket.on('connect', handleConnect)
-    socket.on('disconnect', handleDisconnect)
-    socket.on('game-created', handleGameCreated)
-    socket.on('player-joined', handlePlayerJoined)
-    socket.on('game-started', handleGameStarted)
-    socket.on('question-submitted', handleQuestionSubmitted)
-    socket.on('your-turn-to-ask', handleYourTurnToAsk)
-    socket.on('waiting-for-question', handleWaitingForQuestion)
-    socket.on('question-ready', handleQuestionReady)
-    socket.on('answer-submitted', handleAnswerSubmitted)
-    socket.on('reveal-countdown', handleRevealCountdown)
-    socket.on('reveal', handleReveal)
-    socket.on('round-complete', handleRoundComplete)
-    socket.on('game-over', handleGameOver)
-    socket.on('error', handleError)
-
-    return () => {
-      socket.off('connect', handleConnect)
-      socket.off('disconnect', handleDisconnect)
-      socket.off('game-created', handleGameCreated)
-      socket.off('player-joined', handlePlayerJoined)
-      socket.off('game-started', handleGameStarted)
-      socket.off('question-submitted', handleQuestionSubmitted)
-      socket.off('your-turn-to-ask', handleYourTurnToAsk)
-      socket.off('waiting-for-question', handleWaitingForQuestion)
-      socket.off('question-ready', handleQuestionReady)
-      socket.off('answer-submitted', handleAnswerSubmitted)
-      socket.off('reveal-countdown', handleRevealCountdown)
-      socket.off('reveal', handleReveal)
-      socket.off('round-complete', handleRoundComplete)
-      socket.off('game-over', handleGameOver)
-      socket.off('error', handleError)
-    }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+  try {
+    const snapshot = await getGameSnapshot(gameId, playerToken)
+    applySnapshot(snapshot)
+  } catch (error) {
+    setError(error.message || 'Failed to sync game state.')
+  }
 }
 
-/**
- * Emit helper hook used by pages and actions.
- */
+export function useSocketEvents() {
+  const {
+    gameId,
+    playerToken,
+    setConnected,
+    setError,
+    setSession,
+    applySnapshot,
+  } = useGameStore()
+
+  useEffect(() => {
+    const saved = loadPlayerSession()
+    if (saved?.gameId && saved?.playerToken && !gameId && !playerToken) {
+      setSession(saved)
+    }
+  }, [gameId, playerToken, setSession])
+
+  useEffect(() => {
+    if (!gameId || !playerToken) {
+      setConnected(true, null)
+      return undefined
+    }
+
+    let cancelled = false
+
+    const sync = async () => {
+      try {
+        const snapshot = await getGameSnapshot(gameId, playerToken)
+        if (!cancelled) {
+          applySnapshot(snapshot)
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setError(error.message || 'Failed to resume game.')
+        }
+      }
+    }
+
+    resumePlayer(gameId, playerToken)
+      .then((snapshot) => {
+        if (!cancelled) {
+          applySnapshot(snapshot)
+        }
+      })
+      .catch((error) => {
+        if (!cancelled) {
+          setError(error.message || 'Failed to resume game.')
+        }
+      })
+
+    const channel = supabase
+      .channel(`trivia-game-${gameId}`)
+      .on('postgres_changes', { event: '*', schema: 'trivia', table: 'games', filter: `id=eq.${gameId}` }, sync)
+      .on('postgres_changes', { event: '*', schema: 'trivia', table: 'game_players', filter: `game_id=eq.${gameId}` }, sync)
+      .on('postgres_changes', { event: '*', schema: 'trivia', table: 'game_rounds', filter: `game_id=eq.${gameId}` }, sync)
+      .subscribe((status) => {
+        if (!cancelled) {
+          setConnected(status === 'SUBSCRIBED', null)
+        }
+      })
+
+    return () => {
+      cancelled = true
+      if (gameId && playerToken) {
+        markPlayerDisconnected(gameId, playerToken).catch(() => {})
+      }
+      supabase.removeChannel(channel)
+    }
+  }, [applySnapshot, gameId, playerToken, setConnected, setError])
+
+  useEffect(() => {
+    const updateCountdowns = () => {
+      const store = useGameStore.getState()
+      if (store.phase === 'answering' && store.answerDeadlineAt) {
+        const nextTimeLeft = Math.max(
+          0,
+          Math.ceil((new Date(store.answerDeadlineAt).getTime() - Date.now()) / 1000)
+        )
+        store.setTimeLeft(nextTimeLeft)
+        store.setTimerActive(nextTimeLeft > 0)
+      }
+
+      if (store.phase === 'reveal' && store.revealDeadlineAt) {
+        const nextRevealCountdown = Math.max(
+          0,
+          Math.ceil((new Date(store.revealDeadlineAt).getTime() - Date.now()) / 1000)
+        )
+        store.setRevealCountdown(nextRevealCountdown)
+      }
+    }
+
+    updateCountdowns()
+    const interval = window.setInterval(updateCountdowns, 1000)
+    return () => window.clearInterval(interval)
+  }, [])
+}
+
 export function useSocket() {
-  const createGame = useCallback(({ playerName, gameLength }) => {
-    const socket = getSocket()
-    socket.emit('create-game', { playerName, gameLength })
-  }, [])
+  const { setError, clearError, setMyName, setSession, applySnapshot, gameId, playerToken, resetGame } = useGameStore()
 
-  const joinGame = useCallback(({ gameId, playerName }) => {
-    const socket = getSocket()
-    socket.emit('join-game', { gameId, playerName })
-  }, [])
+  const createGame = useCallback(async ({ playerName, gameLength }) => {
+    clearError()
+    try {
+      setMyName(playerName)
+      const session = await createGameRpc(playerName, gameLength)
+      const localSession = {
+        gameId: session.game_id,
+        playerToken: session.player_token,
+        myRole: session.player_role,
+        myName: playerName,
+        joinCode: session.join_code,
+      }
+      savePlayerSession(localSession)
+      setSession(localSession)
+      const snapshot = await resumePlayer(session.game_id, session.player_token)
+      applySnapshot(snapshot)
+    } catch (error) {
+      setError(error.message || 'Failed to create game.')
+    }
+  }, [applySnapshot, clearError, setError, setMyName, setSession])
 
-  const startGame = useCallback(({ gameId }) => {
-    const socket = getSocket()
-    socket.emit('start-game', { gameId })
-  }, [])
+  const joinGame = useCallback(async ({ gameId: nextGameId, playerName }) => {
+    clearError()
+    try {
+      setMyName(playerName)
+      const session = await joinGameById(nextGameId, playerName)
+      const localSession = {
+        gameId: session.game_id,
+        playerToken: session.player_token,
+        myRole: session.player_role,
+        myName: playerName,
+        joinCode: session.join_code,
+      }
+      savePlayerSession(localSession)
+      setSession(localSession)
+      const snapshot = await resumePlayer(session.game_id, session.player_token)
+      applySnapshot(snapshot)
+    } catch (error) {
+      setError(error.message || 'Failed to join game.')
+    }
+  }, [applySnapshot, clearError, setError, setMyName, setSession])
 
-  const submitQuestion = useCallback(({ gameId, question, choices, correctAnswer }) => {
-    const socket = getSocket()
-    socket.emit('submit-question', { gameId, question, choices, correctAnswer })
-  }, [])
+  const startGame = useCallback(async ({ gameId: nextGameId }) => {
+    clearError()
+    try {
+      const snapshot = await startGameRpc(nextGameId, useGameStore.getState().playerToken)
+      applySnapshot(snapshot)
+    } catch (error) {
+      setError(error.message || 'Failed to start game.')
+    }
+  }, [applySnapshot, clearError, setError])
 
-  const submitAnswer = useCallback(({ gameId, answer }) => {
-    const socket = getSocket()
-    socket.emit('submit-answer', { gameId, answer })
-  }, [])
+  const submitQuestion = useCallback(async ({ gameId: nextGameId, question, choices, correctAnswer }) => {
+    clearError()
+    try {
+      const snapshot = await submitQuestionRpc(nextGameId, useGameStore.getState().playerToken, {
+        question,
+        choices,
+        correctAnswer,
+      })
+      applySnapshot(snapshot)
+    } catch (error) {
+      setError(error.message || 'Failed to submit question.')
+    }
+  }, [applySnapshot, clearError, setError])
 
-  const nextRound = useCallback(({ gameId }) => {
-    const socket = getSocket()
-    socket.emit('next-round', { gameId })
-  }, [])
+  const submitAnswer = useCallback(async ({ gameId: nextGameId, answer }) => {
+    clearError()
+    try {
+      const snapshot = await submitAnswerRpc(nextGameId, useGameStore.getState().playerToken, answer)
+      applySnapshot(snapshot)
+    } catch (error) {
+      setError(error.message || 'Failed to submit answer.')
+    }
+  }, [applySnapshot, clearError, setError])
 
-  const playAgain = useCallback(({ gameId }) => {
-    const socket = getSocket()
-    socket.emit('play-again', { gameId })
-  }, [])
+  const submitTimeout = useCallback(async () => {
+    const liveGameId = useGameStore.getState().gameId
+    const livePlayerToken = useGameStore.getState().playerToken
+    if (!liveGameId || !livePlayerToken) return
+
+    try {
+      const snapshot = await submitTimeoutRpc(liveGameId, livePlayerToken)
+      applySnapshot(snapshot)
+    } catch (error) {
+      setError(error.message || 'Failed to finalize timeout.')
+    }
+  }, [applySnapshot, setError])
+
+  const nextRound = useCallback(async ({ gameId: nextGameId }) => {
+    clearError()
+    try {
+      const snapshot = await advanceRoundRpc(nextGameId, useGameStore.getState().playerToken)
+      applySnapshot(snapshot)
+    } catch (error) {
+      setError(error.message || 'Failed to advance round.')
+    }
+  }, [applySnapshot, clearError, setError])
+
+  const playAgain = useCallback(() => {
+    clearPlayerSession()
+    resetGame()
+    window.location.href = '/'
+  }, [resetGame])
 
   const newGame = useCallback(() => {
-    const socket = getSocket()
-    socket.emit('new-game', {})
-  }, [])
+    clearPlayerSession()
+    resetGame()
+  }, [resetGame])
 
   return {
     createGame,
@@ -142,9 +245,11 @@ export function useSocket() {
     startGame,
     submitQuestion,
     submitAnswer,
+    submitTimeout,
     nextRound,
     playAgain,
     newGame,
+    refreshSnapshot,
   }
 }
 

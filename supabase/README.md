@@ -17,16 +17,26 @@ This app should use a separate `trivia` schema inside your existing Supabase pro
 1. Open Supabase SQL Editor for project `rmpilrdqjjznozafrwpv`.
 2. Paste the migration SQL from `migrations/20260329_000001_trivia_schema.sql`.
 3. Run it once.
-4. Verify the `trivia` schema appears with:
+4. Paste the gameplay SQL from `migrations/20260329_000002_trivia_gameplay.sql`.
+5. Run it once.
+6. In `Project Settings` → `Data API` → `Settings`, add `trivia` to the exposed schemas list and save.
+7. Verify the `trivia` schema appears with:
    - `games`
    - `game_players`
    - `game_rounds`
    - `game_events`
-5. Verify Realtime is enabled for:
+8. Verify Realtime is enabled for:
    - `trivia.games`
    - `trivia.game_players`
    - `trivia.game_rounds`
 
+## Frontend environment values
+
+Set these in your frontend host before the next deploy:
+
+- `VITE_SUPABASE_URL=https://rmpilrdqjjznozafrwpv.supabase.co`
+- `VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_hZcLWier91MPw2ma0r0qIw_nCOuXGO4`
+
 ## Important note
 
-This migration prepares the persistent data layer. The existing deployed app is still using the Socket.IO / in-memory backend until the frontend and gameplay logic are migrated to Supabase-backed reads and writes.
+After the gameplay migration and a fresh frontend deploy, the app can use Supabase-backed room state and realtime sync instead of depending on the old in-memory Socket.IO flow.

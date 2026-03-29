@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import useGameStore from '../store/gameStore'
 import useSocket from '../hooks/useSocket'
 import PageWrapper from '../components/PageWrapper'
@@ -10,8 +10,14 @@ export default function HomePage() {
   const [playerName, setPlayerName] = useState('')
   const [isCreating, setIsCreating] = useState(false)
 
-  const { gameLength, setGameLength, setMyName } = useGameStore()
+  const { gameLength, setGameLength, setMyName, myRole, error } = useGameStore()
   const { createGame } = useSocket()
+
+  useEffect(() => {
+    if (myRole || error) {
+      setIsCreating(false)
+    }
+  }, [myRole, error])
 
   const handleCreate = (e) => {
     e.preventDefault()

@@ -12,15 +12,15 @@ export default function JoinPage() {
   const [playerName, setPlayerName] = useState('')
   const [isJoining, setIsJoining] = useState(false)
 
-  const { setMyName, setGameId, myRole } = useGameStore()
+  const { setMyName, setGameId, myRole, error } = useGameStore()
   const { joinGame } = useSocket()
 
   // If already in the game (re-render after join), stop spinner
   useEffect(() => {
-    if (myRole) {
+    if (myRole || error) {
       setIsJoining(false)
     }
-  }, [myRole])
+  }, [myRole, error])
 
   useEffect(() => {
     if (urlGameId) {

@@ -398,7 +398,17 @@ function processAnswer(
 ): void {
   const result = submitAnswer(gameId, answererSocketId, answer, timedOut);
   if (result.error || !result.game) {
-    io.to(answererSocketId).emit('error', { message: result.error ?? 'Failed to submit answer.' });
+    const currentGame = getGame(gameId);
+    const staleAnswerState =
+      result.error === 'Not in answering phase.' &&
+      currentGame &&
+      ['REVEAL', 'ROUND_COMPLETE', 'GAME_OVER'].includes(currentGame.state);
+
+    // Ignore stale duplicate submits that arrive after the round has already
+    // advanced; the first accepted answer has already determined the outcome.
+    if (!staleAnswerState) {
+      io.to(answererSocketId).emit('error', { message: result.error ?? 'Failed to submit answer.' });
+    }
     return;
   }
 

@@ -17,16 +17,19 @@ export default function AnsweringPage() {
   const {
     gameId, question, choices, selectedAnswer, selectAnswer,
     roundNumber, totalRounds, currentQuestioner, timeLeft,
+    answerSubmitted, setAnswerSubmitted, setTimerActive,
   } = useGameStore()
   const { submitAnswer } = useSocket()
 
   const handleSelect = (label) => {
-    if (selectedAnswer) return // already answered
+    if (answerSubmitted) return
     selectAnswer(label)
   }
 
   const handleSubmit = () => {
-    if (!selectedAnswer) return
+    if (!selectedAnswer || answerSubmitted) return
+    setAnswerSubmitted(true)
+    setTimerActive(false)
     submitAnswer({ gameId, answer: selectedAnswer })
   }
 
@@ -78,7 +81,7 @@ export default function AnsweringPage() {
           {choiceList.map(({ label, text }) => {
             const accent = CHOICE_ACCENTS[label]
             const isSelected = selectedAnswer === label
-            const isDisabled = !!selectedAnswer && !isSelected
+            const isDisabled = answerSubmitted || (!!selectedAnswer && !isSelected)
 
             return (
               <button
@@ -115,13 +118,17 @@ export default function AnsweringPage() {
         {/* Submit button */}
         <button
           onClick={handleSubmit}
-          disabled={!selectedAnswer}
+          disabled={!selectedAnswer || answerSubmitted}
           className="btn-primary w-full text-base"
         >
-          {selectedAnswer ? `Submit Answer (${selectedAnswer})` : 'Select an answer above'}
+          {answerSubmitted
+            ? 'Answer Submitted'
+            : selectedAnswer
+            ? `Submit Answer (${selectedAnswer})`
+            : 'Select an answer above'}
         </button>
 
-        {selectedAnswer && (
+        {selectedAnswer && !answerSubmitted && (
           <p className="text-center text-indigo-400 text-xs">
             You selected <strong className="text-violet-300">Choice {selectedAnswer}</strong> — hit submit to confirm
           </p>

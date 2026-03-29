@@ -44,6 +44,7 @@ const useGameStore = create((set, get) => ({
   selectedAnswer: null,
   timeLeft: 30,
   timerActive: false,
+  answerSubmitted: false,
 
   // Reveal state
   revealData: null,    // { correctAnswer, answererChoice, answererCorrect, pointsAwarded, scores }
@@ -127,6 +128,7 @@ const useGameStore = create((set, get) => ({
       question: null,
       choices: null,
       selectedAnswer: null,
+      answerSubmitted: false,
       revealData: null,
     })
   },
@@ -138,6 +140,7 @@ const useGameStore = create((set, get) => ({
       question: null,
       choices: null,
       selectedAnswer: null,
+      answerSubmitted: false,
     })
   },
 
@@ -148,6 +151,7 @@ const useGameStore = create((set, get) => ({
       question,
       choices,
       selectedAnswer: null,
+      answerSubmitted: false,
       timeLeft: 30,
       timerActive: true,
     })
@@ -156,7 +160,7 @@ const useGameStore = create((set, get) => ({
   // Answer was submitted (notification)
   onAnswerSubmitted: ({ answererName }) => {
     // questioner sees this — someone submitted
-    set({ timerActive: false })
+    set({ timerActive: false, answerSubmitted: true })
   },
 
   // Reveal result
@@ -188,6 +192,7 @@ const useGameStore = create((set, get) => ({
       question: null,
       choices: null,
       selectedAnswer: null,
+      answerSubmitted: false,
       revealData: null,
       revealCountdown: 5,
     })
@@ -215,6 +220,8 @@ const useGameStore = create((set, get) => ({
   // Local actions
   selectAnswer: (answer) => set({ selectedAnswer: answer }),
 
+  setAnswerSubmitted: (answerSubmitted) => set({ answerSubmitted }),
+
   setTimeLeft: (timeLeft) => set({ timeLeft }),
 
   setTimerActive: (active) => set({ timerActive: active }),
@@ -241,6 +248,7 @@ const useGameStore = create((set, get) => ({
     selectedAnswer: null,
     timeLeft: 30,
     timerActive: false,
+    answerSubmitted: false,
     revealData: null,
     revealCountdown: 5,
     scores: { player1: 0, player2: 0 },

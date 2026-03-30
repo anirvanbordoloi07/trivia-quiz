@@ -1,0 +1,23 @@
+alter function trivia.create_game(text, integer) security definer;
+alter function trivia.join_game(text, text) security definer;
+alter function trivia.join_game_by_id(uuid, text) security definer;
+alter function trivia.resume_player(uuid, uuid) security definer;
+alter function trivia.get_game_snapshot(uuid, uuid) security definer;
+alter function trivia.start_game(uuid, uuid) security definer;
+alter function trivia.submit_question(uuid, uuid, text, text, text, text, text, text) security definer;
+alter function trivia.submit_answer(uuid, uuid, text) security definer;
+alter function trivia.submit_timeout(uuid, uuid) security definer;
+alter function trivia.advance_round(uuid, uuid) security definer;
+alter function trivia.mark_player_disconnected(uuid, uuid) security definer;
+
+alter function trivia.create_game(text, integer) set search_path = trivia, public;
+alter function trivia.join_game(text, text) set search_path = trivia, public;
+alter function trivia.join_game_by_id(uuid, text) set search_path = trivia, public;
+alter function trivia.resume_player(uuid, uuid) set search_path = trivia, public;
+alter function trivia.get_game_snapshot(uuid, uuid) set search_path = trivia, public;
+alter function trivia.start_game(uuid, uuid) set search_path = trivia, public;
+alter function trivia.submit_question(uuid, uuid, text, text, text, text, text, text) set search_path = trivia, public;
+alter function trivia.submit_answer(uuid, uuid, text) set search_path = trivia, public;
+alter function trivia.submit_timeout(uuid, uuid) set search_path = trivia, public;
+alter function trivia.advance_round(uuid, uuid) set search_path = trivia, public;
+alter function trivia.mark_player_disconnected(uuid, uuid) set search_path = trivia, public;
